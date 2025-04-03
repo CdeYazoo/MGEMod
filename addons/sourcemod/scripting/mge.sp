@@ -50,6 +50,13 @@ enum
     AS_REPORTED
 };
 
+enum
+{
+    DRIVER_SQLITE = 0,
+    DRIVER_MYSQL,
+    DRIVER_POSTGRES
+}
+
 // for neutral cap points
 #define NEUTRAL 1
 
@@ -85,10 +92,10 @@ char g_sMapName[256],
      g_spawnFile[128];
 
 bool g_bBlockFallDamage,
-     g_bUseSQLite,
      g_bAutoCvar;
 
 int
+    g_iDBDriver,
     g_iDefaultFragLimit,
     g_iAirshotHeight = 80;
 
@@ -2184,17 +2191,9 @@ void CalcELO(int winner, int loser)
     int winner_team_slot = (g_iPlayerSlot[winner] > 2) ? (g_iPlayerSlot[winner] - 2) : g_iPlayerSlot[winner];
     int loser_team_slot = (g_iPlayerSlot[loser] > 2) ? (g_iPlayerSlot[loser] - 2) : g_iPlayerSlot[loser];
 
-    // DB entry for this specific duel.
-    if (g_bUseSQLite)
-    {
-        Format(query, sizeof(query), "INSERT INTO mgemod_duels VALUES ('%s', '%s', %i, %i, %i, %i, '%s', '%s')",
+    Format(query, sizeof(query), "INSERT INTO mgemod_duels (winner, loser, winnerscore, loserscore, winlimit, gametime, mapname, arenaname) VALUES ('%s', '%s', %i, %i, %i, %i, '%s', '%s')",
             g_sPlayerSteamID[winner], g_sPlayerSteamID[loser], g_iArenaScore[arena_index][winner_team_slot], g_iArenaScore[arena_index][loser_team_slot], g_iArenaFraglimit[arena_index], time, g_sMapName, g_sArenaName[arena_index]);
         db.Query(SQLErrorCheckCallback, query);
-    } else {
-        Format(query, sizeof(query), "INSERT INTO mgemod_duels (winner, loser, winnerscore, loserscore, winlimit, gametime, mapname, arenaname) VALUES ('%s', '%s', %i, %i, %i, %i, '%s', '%s')",
-            g_sPlayerSteamID[winner], g_sPlayerSteamID[loser], g_iArenaScore[arena_index][winner_team_slot], g_iArenaScore[arena_index][loser_team_slot], g_iArenaFraglimit[arena_index], time, g_sMapName, g_sArenaName[arena_index]);
-        db.Query(SQLErrorCheckCallback, query);
-    }
 
     //winner's stats
     Format(query, sizeof(query), "UPDATE mgemod_stats SET rating=%i,wins=wins+1,lastplayed=%i WHERE steamid='%s'",
@@ -2249,17 +2248,10 @@ void CalcELO2(int winner, int winner2, int loser, int loser2)
         MC_PrintToChat(loser2, "%t", "LostPoints", loserscore);
 
 
-    // DB entry for this specific duel.
-    if (g_bUseSQLite)
-    {
-        Format(query, sizeof(query), "INSERT INTO mgemod_duels_2v2 VALUES ('%s', '%s', '%s', '%s', %i, %i, %i, %i, '%s', '%s')",
+    Format(query, sizeof(query), "INSERT INTO mgemod_duels_2v2 (winner, winner2, loser, loser2, winnerscore, loserscore, winlimit, gametime, mapname, arenaname) VALUES ('%s', '%s', '%s', '%s', %i, %i, %i, %i, '%s', '%s')",
             g_sPlayerSteamID[winner], g_sPlayerSteamID[winner2], g_sPlayerSteamID[loser], g_sPlayerSteamID[loser2], g_iArenaScore[arena_index][winner_team_slot], g_iArenaScore[arena_index][loser_team_slot], g_iArenaFraglimit[arena_index], time, g_sMapName, g_sArenaName[arena_index]);
-        db.Query(SQLErrorCheckCallback, query);
-    } else {
-        Format(query, sizeof(query), "INSERT INTO mgemod_duels_2v2 (winner, winner2, loser, loser2, winnerscore, loserscore, winlimit, gametime, mapname, arenaname) VALUES ('%s', '%s', '%s', '%s', %i, %i, %i, %i, '%s', '%s')",
-            g_sPlayerSteamID[winner], g_sPlayerSteamID[winner2], g_sPlayerSteamID[loser], g_sPlayerSteamID[loser2], g_iArenaScore[arena_index][winner_team_slot], g_iArenaScore[arena_index][loser_team_slot], g_iArenaFraglimit[arena_index], time, g_sMapName, g_sArenaName[arena_index]);
-        db.Query(SQLErrorCheckCallback, query);
-    }
+    db.Query(SQLErrorCheckCallback, query);
+    
 
     //winner's stats
     Format(query, sizeof(query), "UPDATE mgemod_stats SET rating=%i,wins=wins+1,lastplayed=%i WHERE steamid='%s'",
@@ -3832,32 +3824,30 @@ void PrepareSQL() // Opens the connection to the database, and creates the table
     char ident[16];
     db.Driver.GetIdentifier(ident, sizeof(ident));
 
-    if (StrEqual(ident, "mysql", false))
-    {
-        g_bUseSQLite = false;
-    }
-    else if (StrEqual(ident, "sqlite", false))
-    {
-        g_bUseSQLite = true;
-    }
-    else
-    {
+    if (StrEqual(ident, "mysql", false)) {
+        g_iDBDriver = DRIVER_MYSQL;
+    } else if (StrEqual(ident, "sqlite", false)) {
+        g_iDBDriver = DRIVER_SQLITE;
+    } else if (StrEqual(ident, "pgsql", false)) {
+        g_iDBDriver = DRIVER_POSTGRES;
+    } else {
         SetFailState("Invalid database.");
     }
 
-    if (g_bUseSQLite)
+
+    // No indexes/pk?
+    if (g_iDBDriver == DRIVER_SQLITE || g_iDBDriver == DRIVER_POSTGRES)
     {
         db.Query(SQLErrorCheckCallback, "CREATE TABLE IF NOT EXISTS mgemod_stats (rating INTEGER, steamid TEXT, name TEXT, wins INTEGER, losses INTEGER, lastplayed INTEGER, hitblip INTEGER)");
         db.Query(SQLErrorCheckCallback, "CREATE TABLE IF NOT EXISTS mgemod_duels (winner TEXT, loser TEXT, winnerscore INTEGER, loserscore INTEGER, winlimit INTEGER, gametime INTEGER, mapname TEXT, arenaname TEXT) ");
         db.Query(SQLErrorCheckCallback, "CREATE TABLE IF NOT EXISTS mgemod_duels_2v2 (winner TEXT, winner2 TEXT, loser TEXT, loser2 TEXT, winnerscore INTEGER, loserscore INTEGER, winlimit INTEGER, gametime INTEGER, mapname TEXT, arenaname TEXT) ");
     }
-    else
+    else if (g_iDBDriver == DRIVER_MYSQL)
     {
         db.Query(SQLErrorCheckCallback, "CREATE TABLE IF NOT EXISTS mgemod_stats (rating INT(4) NOT NULL, steamid VARCHAR(32) NOT NULL, name VARCHAR(64) NOT NULL, wins INT(4) NOT NULL, losses INT(4) NOT NULL, lastplayed INT(11) NOT NULL, hitblip INT(2) NOT NULL) DEFAULT CHARACTER SET utf8 COLLATE utf8_unicode_ci ENGINE = InnoDB ");
         db.Query(SQLErrorCheckCallback, "CREATE TABLE IF NOT EXISTS mgemod_duels (winner VARCHAR(32) NOT NULL, loser VARCHAR(32) NOT NULL, winnerscore INT(4) NOT NULL, loserscore INT(4) NOT NULL, winlimit INT(4) NOT NULL, gametime INT(11) NOT NULL, mapname VARCHAR(64) NOT NULL, arenaname VARCHAR(32) NOT NULL) DEFAULT CHARACTER SET utf8 COLLATE utf8_unicode_ci ENGINE = InnoDB ");
         db.Query(SQLErrorCheckCallback, "CREATE TABLE IF NOT EXISTS mgemod_duels_2v2 (winner VARCHAR(32) NOT NULL, winner2 VARCHAR(32) NOT NULL, loser VARCHAR(32) NOT NULL, loser2 VARCHAR(32) NOT NULL, winnerscore INT(4) NOT NULL, loserscore INT(4) NOT NULL, winlimit INT(4) NOT NULL, gametime INT(11) NOT NULL, mapname VARCHAR(64) NOT NULL, arenaname VARCHAR(32) NOT NULL) DEFAULT CHARACTER SET utf8 COLLATE utf8_unicode_ci ENGINE = InnoDB ");
     }
-
 }
 
 void T_SQLQueryOnConnect(Database owner, DBResultSet hndl, const char[] error, any data)
@@ -3891,14 +3881,8 @@ void T_SQLQueryOnConnect(Database owner, DBResultSet hndl, const char[] error, a
         Format(query, sizeof(query), "UPDATE mgemod_stats SET name='%s' WHERE steamid='%s'", namesql, g_sPlayerSteamID[client]);
         db.Query(SQLErrorCheckCallback, query);
     } else {
-        if (g_bUseSQLite)
-        {
-            Format(query, sizeof(query), "INSERT INTO mgemod_stats VALUES(1600, '%s', '%s', 0, 0, %i, 1)", g_sPlayerSteamID[client], namesql, GetTime());
-            db.Query(SQLErrorCheckCallback, query);
-        } else {
-            Format(query, sizeof(query), "INSERT INTO mgemod_stats (rating, steamid, name, wins, losses, lastplayed, hitblip) VALUES (1600, '%s', '%s', 0, 0, %i, 1)", g_sPlayerSteamID[client], namesql, GetTime());
-            db.Query(SQLErrorCheckCallback, query);
-        }
+        Format(query, sizeof(query), "INSERT INTO mgemod_stats (rating, steamid, name, wins, losses, lastplayed, hitblip) VALUES (1600, '%s', '%s', 0, 0, %i, 1)", g_sPlayerSteamID[client], namesql, GetTime());
+        db.Query(SQLErrorCheckCallback, query);
 
         g_iPlayerRating[client] = 1600;
         g_bHitBlip[client] = false;
