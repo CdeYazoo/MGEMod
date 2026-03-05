@@ -50,13 +50,6 @@ enum
     AS_REPORTED
 };
 
-enum
-{
-    DRIVER_SQLITE = 0,
-    DRIVER_MYSQL,
-    DRIVER_POSTGRES
-}
-
 // for neutral cap points
 #define NEUTRAL 1
 
