@@ -1,17 +1,16 @@
-name: StAC Autobuild
-# modified from https://github.com/nosoop/NinjaBuild-SMPlugin/blob/master/contrib/github-workflow/build-on-version-tag-push.yml
+name: Build Plugin
 
 on:
   push:
-    tags:
-    - 'v*'
+    branches:
+    - main
+  workflow_dispatch:
 
 jobs:
   run:
     name: Run action
     runs-on: ubuntu-latest
 
-    # skip build on '[ci skip]'
     if: "!contains(github.event.head_commit.message, '[ci skip]')"
 
     steps:
@@ -22,35 +21,18 @@ jobs:
     - name: Setup SourcePawn Compiler
       uses: rumblefrog/setup-sp@master
       with:
-        version: "1.11.x"
+        version: "1.12.x"
 
-    - name: Compile plugins
+    - name: Compile plugin
       run: |
-        pwd
         spcomp -i"./addons/sourcemod/scripting/include/" addons/sourcemod/scripting/mge.sp -o ./addons/sourcemod/plugins/mge.smx
-        ls -la
-
-    - name: Download maps that are too large to put on github
-      run: |
-        cd maps
-        wget "https://sappho.io/files/tf/maps/mge_chillypunch_final4_fix2.bsp" || exit 1
-        echo "eae52bc16d6cb872938e67b4fc9b845c9f227e5d444614254465fe6530480a0e mge_chillypunch_final4_fix2.bsp" | sha256sum -c || exit 2
-
-
-    - name: Zip packages
-      run: |
-        mkdir build
-        7za a -r build/mge.zip addons/ maps/
-        ls -la
-        pwd
 
     - name: Release
       uses: softprops/action-gh-release@v1
-      if: startsWith(github.ref, 'refs/tags/')
       with:
-        files: |
-          ./build/mge.zip
+        tag_name: latest
+        name: Latest Build
+        files: ./addons/sourcemod/plugins/mge.smx
         fail_on_unmatched_files: true
-        generate_release_notes: true
-        # if: contains(github.ref, 'beta')
-        # prerelease: true
+        generate_release_notes: false
+        prerelease: true
